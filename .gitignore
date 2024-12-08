@@ -1,0 +1,12 @@
+# To not be pushed
+data/
+/.quarto/
+docs/.quarto/ 
+.DS_Store
+output/houston_blackout_analysis.qmd/.DS_Store
+
+
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
