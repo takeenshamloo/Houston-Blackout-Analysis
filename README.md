@@ -1,5 +1,9 @@
 # Houston Blackout Analysis: Texas Winter Storm
 
+## Author
+- **Takeen Shamloo**  
+  GitHub: [@takeenshamloo](https://github.com/takeenshamloo)
+
 ## Overview
 This repository explores the geospatial and socioeconomic impacts of the 2
 021 Texas Winter Storm on power outages in the Houston metropolitan area. 
@@ -83,6 +87,10 @@ The `data/` folder contains raw input files and is excluded from the repository 
   - Quarto documents rendered to HTML.
 
 ---
+
+## Acknowledgements
+- This project was developed as part of the UCSB MEDS program.
+- Data sources include NASA’s VIIRS, OpenStreetMap, and U.S. Census Bureau.
 
 ## Reflections
 This analysis reveals disproportionate impacts of the storm on lower-income neighborhoods in Houston. Limitations include the use of census-level data. Future improvements could involve higher-resolution datasets and additional socioeconomic indicators.
