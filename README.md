@@ -26,7 +26,7 @@ The repository is structured as follows:
 ```{plaintext}
 Houston_Blackout_Analysis
 ├── output/
-│   ├── houston_storm_analysis.qmd     # HTML render of document
+│   ├── houston_storm_analysis.html     # HTML render of document
 │   ├── houston_storm_analysis_files/  # Output figures etc.
 ├── docs/
 │   ├── houston_storm_analysis.qmd     # Quarto analysis document
