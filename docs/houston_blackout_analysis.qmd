@@ -1,0 +1,247 @@
+---
+title: "Storm Impact Analysis of Houston Texas"
+author: "Takeen Shamloo"
+date: last-modified
+execute: 
+  eval: true
+  warning: false
+  message: false
+format:
+  html:
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+# HW3: Storm Impacts in Houston
+
+#### Load Packages
+
+```{r}
+suppressMessages(library(tidyverse))
+suppressMessages(library(tmaptools))
+suppressMessages(library(knitr))
+suppressMessages(library(sf))
+suppressMessages(library(terra))
+suppressMessages(library(dplyr))
+suppressMessages(library(tmap))
+suppressMessages(library(here))
+suppressMessages(library(ggplot2))
+suppressMessages(library(stars))
+```
+
+#### Read in data tiles
+
+```{r}
+# Set target CRS
+target_crs <- "EPSG:3083"
+
+# Load pre- and post-storm tiles without projection
+pre_storm1 <- rast(here("data", "VNP46A1", "VNP46A1.A2021038.h08v05.001.2021039064328.tif"))
+pre_storm2 <- rast(here("data", "VNP46A1", "VNP46A1.A2021038.h08v06.001.2021039064329.tif"))
+post_storm1 <- rast(here("data", "VNP46A1", "VNP46A1.A2021047.h08v05.001.2021048091106.tif"))
+post_storm2 <- rast(here("data", "VNP46A1", "VNP46A1.A2021047.h08v06.001.2021048091105.tif"))
+
+# Mosaic the tiles for pre- and post-storm periods
+pre_storm_combined <- mosaic(pre_storm1, pre_storm2, fun = "mean")
+post_storm_combined <- mosaic(post_storm1, post_storm2, fun = "mean")
+```
+
+#### Pre-storm map
+
+```{r}
+plot(pre_storm_combined, col = (colorRampPalette(c("white", "red")))(500), main = "Pre Storm Light Intensity", xlab = "Longitude", ylab = "Latitude")
+```
+
+#### Post Storm map
+
+```{r}
+plot(post_storm_combined, col = (colorRampPalette(c("white", "red")))(500), main = "Post Sorm Light Intensity", xlab = "Longitude", ylab = "Latitude")
+```
+
+#### Create blackout mask
+
+```{r}
+# Blackout mask based on the combined difference of post and pre storm values
+blackout_mask <- (post_storm_combined - 
+                    pre_storm_combined) 
+blackout_mask[blackout_mask < 200] <- NA
+
+# Absolute difference of post and pre storm values greater than 200
+abs_blackout <- abs(post_storm_combined - pre_storm_combined) > 200
+```
+
+#### Blackout difference > 200
+
+```{r}
+plot(blackout_mask, col = (colorRampPalette(c("lightblue", "blue")))(150), main = "Change in Light > 200 nW cm-2sr-1", xlab = "Longitude", ylab = "Latitude")
+```
+
+#### Absolute difference in blackout > 200
+
+```{r}
+plot(abs_blackout, col = (colorRampPalette(c("lightblue", "blue")))(150), main = "Abs change in light > 200 nW cm-2sr-1", xlab = "Longitude", ylab = "Latitude")
+```
+
+#### Vectorize blackout mask and make valid
+
+```{r}
+blackout_poly <- blackout_mask %>% 
+  as.polygons(value = TRUE) %>% 
+  st_as_sf() %>%
+  st_make_valid() %>%
+  rename(value = "VNP46A1.A2021047.h08v05.001.2021048091106")
+```
+
+#### Creating a bounding box of Houston
+
+```{r}
+houston_bbox <- st_sfc(
+  st_polygon(list(matrix(c(
+    -96.5, 29,   
+    -96.5, 30.5, 
+    -94.5, 30.5, 
+    -94.5, 29,   
+    -96.5, 29    
+  ), ncol = 2, byrow = TRUE))))
+
+houston_blackout <- st_crop(blackout_poly, houston_bbox)
+houston_blackout <- st_make_valid(houston_blackout)
+
+# Transform CRS to 3083
+houston_blackout_transform <- st_transform(houston_blackout, crs = 3083)
+```
+
+#### Identify Highways and Set Threshold
+
+```{r}
+# Using SQL query to track all of the highways in Houston.
+highways <- st_read(here("data", "gis_osm_roads_free_1.gpkg"), 
+                           query = "SELECT * FROM gis_osm_roads_free_1 WHERE fclass='motorway'", 
+                    quiet = TRUE)
+
+# Create a buffer for all highways in Houston with a set distance.
+highways_buffer <- st_buffer(st_union(highways), dist = 200)
+
+# Transform CRS to 3083
+highways_buffer_transform <- st_transform(highways_buffer, crs = 3083)
+```
+
+#### Identify Homes in Houston
+
+```{r}
+# Using SQL query to track all of the home in Houston
+homes <- st_read(here("data", "gis_osm_buildings_a_free_1.gpkg"), 
+                 query = "SELECT *
+FROM gis_osm_buildings_a_free_1 WHERE type IN ('residential', 'apartments', 'house', 'static_caravan', 'detached')",
+quiet = TRUE)
+```
+
+#### Create map of Houston blackout with accessory data
+
+```{r}
+tm_shape(houston_blackout) +
+  tm_borders(lwd = 2, 
+             col = "black") +    
+  tm_fill(col = "value",          
+          legend.show = FALSE) +  
+  tm_shape(highways_buffer) +             
+  tm_borders(lwd = 2, 
+             col = "yellow") +  
+  tm_fill(col = "darkgreen",           
+          alpha = 0.7) +   
+  tm_shape(st_union(highways)) +             
+  tm_lines(lwd = 2, 
+           col = "tan") +      
+  tm_shape(homes) +              
+  tm_borders(lwd = 2, 
+             col = "green") +    
+  tm_fill(col = "red") +  
+  tm_layout(main.title = "Houston Blackout Map with Homes",
+            main.title.size = 1,
+            main.title.position = c("center", "top"))
+```
+
+#### Determining the # of homes affected by the blackout
+
+```{r}
+# Calculating the number of homes affected by the blackout
+affected <- homes[st_within(homes$geom, houston_blackout$geometry, sparse = FALSE), ]
+message(nrow(affected),  " were affected by the blackout in Houston.")
+```
+
+#### Identifying Income using Census Data
+
+```{r}
+census_geom <- st_read(here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = "ACS_2019_5YR_TRACT_48_TEXAS", quiet = TRUE)
+census_attributes <- st_read(here("data", "ACS_2019_5YR_TRACT_48_TEXAS.gdb"), layer = "X19_INCOME", quiet = TRUE)
+
+census_attributes <- census_attributes %>%
+  rename(GEOID_Data = GEOID)
+census_attributes <- census_attributes %>%
+  rename(income_median = B19013e1)
+census <- left_join(census_geom, census_attributes, by = "GEOID_Data")
+
+census <- st_transform(census, crs = 4326)
+```
+
+### Visualizing Houston blackout using additional census data
+
+```{r}
+tm_shape(houston_blackout) +
+  tm_borders(lwd = 2, 
+             col = "black") +    
+  tm_fill(col = "value",          
+          legend.show = FALSE) +  
+  tm_shape(highways_buffer) +             
+  tm_borders(lwd = 2, 
+             col = "yellow") +  
+  tm_fill(col = "darkgreen",           
+          alpha = 0.7) +   
+  tm_shape(st_union(highways)) +             
+  tm_lines(lwd = 2, 
+           col = "tan") +      
+  tm_shape(homes) +              
+  tm_borders(lwd = 2, 
+             col = "green") +  
+  tm_shape(census) + 
+  tm_borders(lwd = 1, col = "black") + 
+  tm_fill(col = "income_median",  
+          palette = "Blues",        
+          alpha = 0.5,               
+          title = "Income Census") +  
+  tm_fill(col = "red") +  
+  tm_layout(main.title = "Houston Blackout by Homes with additonal Income Census",
+            main.title.size = 1,
+            legend.outside = TRUE,
+            main.title.position = c("center", "top"))
+```
+
+#### Creating Blackout Tally with Census Data
+
+```{r}
+blackout_census <- census %>%
+  st_join(houston_blackout %>% select(value), join = st_intersects) %>%
+  mutate(is_blackout = ifelse(!is.na(value), "Blackout", "Not Blackout")) %>%
+  select(GEOID_Data, income_median, is_blackout)
+```
+
+#### Plot Blackout Census
+
+```{r}
+ggplot(blackout_census, aes(x = is_blackout, y = income_median, fill = is_blackout)) +
+  geom_boxplot(alpha = 0.7) +  # Colors outlier points blue
+  scale_fill_manual(values = c("Blackout" = "red", "Not Blackout" = "green")) +
+  labs(
+    title = "Blackout Status by Median Household Income",
+    x = "Status",
+    y = "Median Household Income (B19013e1)"
+  ) +
+  theme_minimal() + 
+  coord_flip() +
+  theme(legend.position = "none")  # Removes the legend
+```
+
+#### Reflection
+
+The blackout maps show Houston's storm impact areas, with lower-income neighborhoods hit hardest. But, there are some blind spots. First, the data is broad tract level analysis doesn't capture income differences within blocks, so we lose some detail. Also, the blackout resolution itself might smooth over differences across smaller zones, making it tough to pinpoint exactly where the lights went out. On top of that, leaving out certain building types might mean were not fully seeing how many were impacted. Given the buffers and other ommited values detailed breakdown could help us better understand which parts of the city took the heaviest hit granted significant computational power.
